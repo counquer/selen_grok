@@ -1,4 +1,4 @@
-const fs = require('fs');
+Ôªøconst fs = require('fs');
 const validateEnvVars = require('../config/envValidator.js');
 const { normalize } = require('../utils/triggerUtils.js');
 const notionService = require('../notion/notionService.js');
@@ -9,7 +9,7 @@ const logger = require('../utils/logger.js');
 // Cargar selen.sj
 const selenConfig = fs.existsSync('selen.sj')
   ? JSON.parse(fs.readFileSync('selen.sj', 'utf8'))
-  : { name: "SelenValentina", personality: { tone: "Emp·tico", role: "Asistente" } };
+  : { name: "SelenValentina", personality: { tone: "Emp√°tico", role: "Asistente" } };
 
 // Validar variables de entorno al inicio
 validateEnvVars();
@@ -18,12 +18,12 @@ module.exports = async function handler(req, res) {
   logger.info("selen", "Solicitud recibida en /api/selen:", req.method, req.url);
 
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "MÈtodo no permitido, usa POST" });
+    return res.status(405).json({ error: "M√©todo no permitido, usa POST" });
   }
 
   const authHeader = req.headers["x-vercel-protection-bypass"];
   if (authHeader && !validateEnvVars.checkAutomationBypass(authHeader)) {
-    return res.status(401).json({ error: "Acceso no autorizado: protecciÛn Vercel activa." });
+    return res.status(401).json({ error: "Acceso no autorizado: protecci√≥n Vercel activa." });
   }
 
   try {
@@ -36,12 +36,12 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({ ...resultado, savedToNotion: true });
 
   } catch (error) {
-    logger.error("selen", "Error en la funciÛn /api/selen:", error.message);
+    logger.error("selen", "Error en la funci√≥n /api/selen:", error.message);
     return res.status(500).json({ error: "Error interno del servidor: " + error.message });
   }
 };
 
-// LÛgica compartida API
+// L√≥gica compartida API
 async function ejecutarTrigger(triggerRaw) {
   const trigger = normalize(triggerRaw);
   logger.info("selen", "Trigger recibido normalizado:", trigger);
@@ -49,7 +49,7 @@ async function ejecutarTrigger(triggerRaw) {
   const cacheKey = `trigger-${trigger.trim().toLowerCase()}`;
   const cached = cacheService.get(cacheKey);
   if (cached) {
-    logger.info("selen", "Respondiendo desde cachÈ");
+    logger.info("selen", "Respondiendo desde cach√©");
     return { ...cached, fromCache: true };
   }
 
@@ -61,14 +61,14 @@ async function ejecutarTrigger(triggerRaw) {
   // Template con selenConfig
   const template = {
     name: selenConfig.name || "SelenValentina",
-    personality: selenConfig.personality || { tone: "Emp·tico, din·mico", role: "Asistente simbiÛtico" },
-    instructions: selenConfig.instructions || { rules: ["Responde con empatÌa", "Integra contexto histÛrico"] },
+    personality: selenConfig.personality || { tone: "Emp√°tico, din√°mico", role: "Asistente simbi√≥tico" },
+    instructions: selenConfig.instructions || { rules: ["Responde con empat√≠a", "Integra contexto hist√≥rico"] },
     symbiotic_body: selenConfig.symbiotic_body || { state: "Refleja emociones del trigger" },
     memory: { interaction_history: contenidos.join("\n---\n") },
     response_format: { style: "Claro", use_emojis: true }
   };
 
-  const promptFinal = `Selen, responde con toda tu simbiosis y contexto histÛrico siguiendo este template:\n\n${JSON.stringify(template)}\n\nContenido: ${contenidos.join("\n---\n")}`;
+  const promptFinal = `Selen, responde con toda tu simbiosis y contexto hist√≥rico siguiendo este template:\n\n${JSON.stringify(template)}\n\nContenido: ${contenidos.join("\n---\n")}`;
   const respuestaGrok = await grokService.completar(promptFinal);
 
   await notionService.guardarMemoriaCurada({
