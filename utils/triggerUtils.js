@@ -1,7 +1,7 @@
-const { normalize } = require('../../utils/triggerUtils.js');
+const { normalize } = require(path.resolve(__dirname, '../../utils/triggerUtils.js'));
 const { Client } = require("@notionhq/client");
 const dotenv = require("dotenv");
-const logger = require("../utils/logger.js");
+const logger = require('../../utils/logger.js");
 dotenv.config();
 
 const notion = new Client({ auth: process.env.NOTION_API_KEY });
