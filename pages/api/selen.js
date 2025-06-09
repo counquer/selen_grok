@@ -1,14 +1,16 @@
 ﻿const fs = require('fs');
-const validateEnvVars = require('../config/envValidator.js');
+const path = require('path');
+const validateEnvVars = require(path.join(process.cwd(), 'config', 'envValidator.js'));  // Updated with path.join
 const { normalize } = require('../utils/triggerUtils.js');
 const notionService = require('../notion/notionService.js');
 const grokService = require('../grok/grokService.js');
 const cacheService = require('../cache/cacheService.js');
 const logger = require('../utils/logger.js');
 
-// Cargar selen.sj
-const selenConfig = fs.existsSync('selen.sj')
-  ? JSON.parse(fs.readFileSync('selen.sj', 'utf8'))
+// Cargar selen.sj con path.join para asegurar portabilidad
+const selenConfigPath = path.join(process.cwd(), 'selen.sj');
+const selenConfig = fs.existsSync(selenConfigPath)
+  ? JSON.parse(fs.readFileSync(selenConfigPath, 'utf8'))
   : { name: "SelenValentina", personality: { tone: "Empático", role: "Asistente" } };
 
 // Validar variables de entorno al inicio
