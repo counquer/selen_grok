@@ -2,9 +2,9 @@
 const path = require('path');
 const validateEnvVars = require(path.join(process.cwd(), 'config', 'envValidator.js'));  // Actualizado con path.join
 const { normalize } = require('../../utils/triggerUtils.js');  // Ruta corregida
-const notionService = require('../notion/notionService.js');
-const grokService = require('../grok/grokService.js');
-const cacheService = require('../cache/cacheService.js');
+const notionService = require('../../notion/notionService.js');
+const grokService = require('../../grok/grokService.js');
+const cacheService = require('../../cache/cacheService.js');
 const logger = require('../utils/logger.js');
 
 // Cargar selen.sj con path.join para asegurar portabilidad
