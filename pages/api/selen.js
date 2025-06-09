@@ -1,7 +1,7 @@
 ﻿const fs = require('fs');
 const path = require('path');
-const validateEnvVars = require(path.join(process.cwd(), 'config', 'envValidator.js'));  // Updated with path.join
-const { normalize } = require('../utils/triggerUtils.js');
+const validateEnvVars = require(path.join(process.cwd(), 'config', 'envValidator.js'));  // Actualizado con path.join
+const { normalize } = require('../../utils/triggerUtils.js');  // Ruta corregida
 const notionService = require('../notion/notionService.js');
 const grokService = require('../grok/grokService.js');
 const cacheService = require('../cache/cacheService.js');
