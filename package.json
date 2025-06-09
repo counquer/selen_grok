@@ -27,5 +27,5 @@
     "react-dom": "^19.1.0"
   },
   "description": "",
-  "type": "module"  // Añadido para habilitar los módulos ESM
+  "type": "module"
 }

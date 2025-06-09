@@ -1,3 +1,4 @@
+const { normalize } = require('../../utils/triggerUtils.js');  // Ruta corregida
 const { Client } = require("@notionhq/client");
 const dotenv = require("dotenv");
 const logger = require("../utils/logger.js");
