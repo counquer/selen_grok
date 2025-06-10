@@ -1,5 +1,5 @@
-const { normalize } = require(path.resolve(__dirname, '../../utils/triggerUtils.js'));
 const { Client } = require("@notionhq/client");
+const { normalize } = require(path.resolve(__dirname, '../../utils/triggerUtils.js'));
 const dotenv = require("dotenv");
 const logger = require('../../utils/logger.js");
 dotenv.config();
