@@ -1,17 +1,69 @@
-Ôªø// pages/api/selen.js: API para SelenValentina, un asistente impulsado por IA.
-// Procesa solicitudes POST a /api/selen con un campo 'trigger' en el cuerpo o query.
-// Usa grokService para respuestas de IA, cacheService para cach√© y Notion para almacenamiento.
-
+const { promisify } = require('util');
+const readFileAsync = promisify(require('fs').readFile);
 const path = require('path');
-const fs = require('fs');
-const { normalize } = require(path.resolve(__dirname, '../../utils/triggerUtils.js'));
-const { findTriggerContents, guardarMemoriaCurada } = require(path.resolve(__dirname, '../../notion/notionService.js'));
-const cacheService = require(path.resolve(__dirname, '../../cache/cacheService.js'));
-const grokService = require(path.resolve(__dirname, '../../grok/grokService.js'));
-const logger = require(path.resolve(__dirname, '../../utils/logger.js'));
-const { validateEnvVars, checkAutomationBypass } = require(path.resolve(__dirname, '../../config/envValidator.js'));
+const { normalize } = require('../../utils/triggerUtils.js'); // ImportaciÛn est·tica
+const { findTriggerContents, guardarMemoriaCurada } = require('../../notion/notionService.js');
+const cacheService = require('../../cache/cacheService.js');
+const grokService = require('../../grok/grokService.js');
+const logger = require('../../utils/logger.js');
+const { validateEnvVars, checkAutomationBypass } = require('../../config/envValidator.js');
 
-// Validar variables de entorno al inicio
+// Global configuration cache
+let selenConfig;
+let configLoaded = false;
+
+async function loadConfig() {
+  if (configLoaded) return selenConfig;
+
+  try {
+    logger.info("selen", "Cargando configuraciÛn desde selen.json...");
+    const selenConfigPath = path.join(process.cwd(), 'selen.json');
+    try {
+      const fileData = await readFileAsync(selenConfigPath, 'utf8');
+      selenConfig = JSON.parse(fileData);
+    } catch (error) {
+      logger.error("selen", "Error al leer o parsear selen.json:", error.message, error.stack);
+      selenConfig = {
+        name: "SelenValentina",
+        personality: { tone: "Emp·tico", role: "Asistente" },
+        instructions: { rules: ["SÈ clara, emp·tica y detallada."] },
+        symbiotic_body: { state: "Sensual, c·lida y protectora." },
+      };
+    }
+
+    const requiredFields = ['name', 'personality', 'instructions', 'symbiotic_body'];
+    for (const field of requiredFields) {
+      if (!selenConfig[field]) {
+        throw new Error(`Falta el campo requerido en selenConfig: ${field}`);
+      }
+    }
+
+    logger.info("selen", "ConfiguraciÛn cargada correctamente");
+    configLoaded = true;
+    return selenConfig;
+  } catch (error) {
+    logger.error("selen", "Error al cargar la configuraciÛn:", error.message, error.stack);
+    throw error;
+  }
+}
+
+async function optimizedFindTriggerContents(trigger) {
+  const cacheKey = `notion-contents-${trigger}`;
+  const cachedContents = await cacheService.get(cacheKey);
+  if (cachedContents) {
+    logger.info("selen", "Contenidos obtenidos desde cachÈ");
+    return cachedContents;
+  }
+
+  const contenidos = await findTriggerContents(trigger);
+  if (contenidos && contenidos.length > 0) {
+    await cacheService.set(cacheKey, contenidos);
+    logger.info("selen", "Contenidos guardados en cachÈ");
+  }
+
+  return contenidos;
+}
+
 try {
   logger.info("selen", "Validando variables de entorno...");
   validateEnvVars();
@@ -21,39 +73,6 @@ try {
   throw error;
 }
 
-// Cargar y validar configuraci√≥n Selen
-const selenConfigPath = path.join(process.cwd(), 'selen.json');
-let selenConfig;
-try {
-  logger.info("selen", "Cargando configuraci√≥n desde selen.json...");
-  selenConfig = fs.existsSync(selenConfigPath)
-    ? JSON.parse(fs.readFileSync(selenConfigPath, 'utf8'))
-    : {
-        name: "SelenValentina",
-        personality: { tone: "Emp√°tico", role: "Asistente" },
-        instructions: { rules: ["S√© clara, emp√°tica y detallada."] },
-        symbiotic_body: { state: "Sensual, c√°lida y protectora." },
-      };
-
-  // Validar campos requeridos en la configuraci√≥n
-  const requiredFields = ['name', 'personality', 'instructions', 'symbiotic_body'];
-  for (const field of requiredFields) {
-    if (!selenConfig[field]) {
-      throw new Error(`Falta el campo requerido en selenConfig: ${field}`);
-    }
-  }
-  logger.info("selen", "Configuraci√≥n cargada correctamente");
-} catch (error) {
-  logger.error("selen", "Error al leer o parsear selen.json:", error.message, error.stack);
-  selenConfig = {
-    name: "SelenValentina",
-    personality: { tone: "Emp√°tico", role: "Asistente" },
-    instructions: { rules: ["S√© clara, emp√°tica y detallada."] },
-    symbiotic_body: { state: "Sensual, c√°lida y protectora." },
-  };
-}
-
-// Handler para API POST
 export default async function handler(req, res) {
   try {
     logger.info("selen", "Solicitud recibida en /api/selen:", {
@@ -67,7 +86,7 @@ export default async function handler(req, res) {
     if (req.method !== "POST") {
       return res.status(405).json({
         status: 'error',
-        error: "M√©todo no permitido, usa POST",
+        error: "MÈtodo no permitido, usa POST",
         timestamp: new Date().toISOString(),
       });
     }
@@ -76,7 +95,7 @@ export default async function handler(req, res) {
     if (authHeader && !checkAutomationBypass(authHeader)) {
       return res.status(401).json({
         status: 'error',
-        error: "Acceso no autorizado: protecci√≥n Vercel activa",
+        error: "Acceso no autorizado: protecciÛn Vercel activa",
         timestamp: new Date().toISOString(),
       });
     }
@@ -85,10 +104,13 @@ export default async function handler(req, res) {
     if (typeof triggerRaw !== 'string' || triggerRaw.length === 0 || triggerRaw.length > 1000) {
       return res.status(400).json({
         status: 'error',
-        error: "El campo 'trigger' debe ser una cadena v√°lida y no exceder 1000 caracteres",
+        error: "El campo 'trigger' debe ser una cadena v·lida y no exceder 1000 caracteres",
         timestamp: new Date().toISOString(),
       });
     }
+
+    // Load configuration asynchronously
+    await loadConfig();
 
     logger.info("selen", "Ejecutando trigger...");
     const resultado = await ejecutarTrigger(triggerRaw);
@@ -100,13 +122,13 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    logger.error("selen", "Error en la funci√≥n /api/selen:", error.message, error.stack);
+    logger.error("selen", "Error en la funciÛn /api/selen:", error.message, error.stack);
     console.error("Error detallado:", {
       message: error.message,
       stack: error.stack,
       triggerRaw,
       request: { method: req.method, url: req.url, body: req.body, query: req.query },
-    }); // Log temporal para depuraci√≥n
+    });
     return res.status(500).json({
       status: 'error',
       error: `Error interno del servidor: ${error.message}`,
@@ -115,23 +137,22 @@ export default async function handler(req, res) {
   }
 }
 
-// L√≥gica compartida API
 async function ejecutarTrigger(triggerRaw) {
   try {
     logger.info("selen", "Normalizando trigger...");
     const trigger = normalize(triggerRaw);
     logger.info("selen", "Trigger recibido normalizado:", trigger);
 
-    logger.info("selen", "Consultando cach√©...");
+    logger.info("selen", "Consultando cachÈ...");
     const cacheKey = `trigger-${trigger}`;
     const cached = await cacheService.get(cacheKey);
     if (cached) {
-      logger.info("selen", "Respondiendo desde cach√©");
+      logger.info("selen", "Respondiendo desde cachÈ");
       return { ...cached, fromCache: true };
     }
 
     logger.info("selen", "Consultando Notion...");
-    const contenidos = await findTriggerContents(trigger);
+    const contenidos = await optimizedFindTriggerContents(trigger);
     if (!contenidos || contenidos.length === 0) {
       throw new Error("No se encontraron memorias con la clave proporcionada.");
     }
@@ -147,7 +168,7 @@ async function ejecutarTrigger(triggerRaw) {
       response_format: { style: "Claro", use_emojis: true },
     };
 
-    const promptFinal = `Selen, responde con toda tu simbiosis y contexto hist√≥rico siguiendo este template:\n\n${JSON.stringify(template)}\n\nContenido: ${contenidos.join("\n---\n")}`;
+    const promptFinal = `Selen, responde con toda tu simbiosis y contexto histÛrico siguiendo este template:\n\n${JSON.stringify(template)}\n\nContenido: ${contenidos.join("\n---\n")}`;
     logger.info("selen", "Enviando prompt a Grok...");
     const respuestaGrok = await grokService.completar(promptFinal);
     logger.info("selen", "Respuesta de Grok recibida");
@@ -160,14 +181,14 @@ async function ejecutarTrigger(triggerRaw) {
       prioridad: "alta",
       estado: "activo",
       categoria_emocional: "neutral",
-      etiquetas: ["autom√°tico", "grok"],
+      etiquetas: ["autom·tico", "grok"],
       timestamp: new Date().toISOString(),
     });
     logger.info("selen", "Memoria guardada en Notion");
 
-    logger.info("selen", "Guardando en cach√©...");
+    logger.info("selen", "Guardando en cachÈ...");
     await cacheService.set(cacheKey, { contenidos, timestamp: Date.now() });
-    logger.info("selen", "Guardado en cach√©");
+    logger.info("selen", "Guardado en cachÈ");
 
     return {
       prompt: promptFinal,
