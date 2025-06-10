@@ -1,22 +1,13 @@
-﻿const fs = require('fs');
-const path = require('path');
-const validateEnvVars = require(path.join(process.cwd(), 'config', 'envValidator.js'));  // Actualizado con path.join
-const { normalize } = require('../../utils/triggerUtils.js');
-const notionService = require('../../notion/notionService.js');
-const grokService = require('../../grok/grokService.js');
-const cacheService = require('../../cache/cacheService.js');
-const logger = require('../utils/logger.js');
-
-// Cargar selen.sj con path.join para asegurar portabilidad
-const selenConfigPath = path.join(process.cwd(), 'selen.sj');
-const selenConfig = fs.existsSync(selenConfigPath)
-  ? JSON.parse(fs.readFileSync(selenConfigPath, 'utf8'))
-  : { name: "SelenValentina", personality: { tone: "Empático", role: "Asistente" } };
-
+﻿
 // Validar variables de entorno al inicio
 validateEnvVars();
 
-module.exports = async function handler(req, res) {
+// Crear servidor Express
+const app = express();
+app.use(express.json());
+
+// Handler para API POST
+async function handler(req, res) {
   try {
     logger.info("selen", "Solicitud recibida en /api/selen:", req.method, req.url);
 
@@ -41,7 +32,7 @@ module.exports = async function handler(req, res) {
     logger.error("selen", "Error en la función /api/selen:", error.message, error.stack);
     return res.status(500).json({ error: "Error interno del servidor: " + error.message });
   }
-};
+}
 
 // Lógica compartida API
 async function ejecutarTrigger(triggerRaw) {
@@ -56,7 +47,7 @@ async function ejecutarTrigger(triggerRaw) {
       return { ...cached, fromCache: true };
     }
 
-    const contenidos = await notionService.findTriggerContents(trigger);
+    const contenidos = await findTriggerContents(trigger);
     if (!contenidos || contenidos.length === 0) {
       throw new Error("No se encontraron memorias con la clave proporcionada.");
     }
@@ -74,7 +65,7 @@ async function ejecutarTrigger(triggerRaw) {
     const promptFinal = `Selen, responde con toda tu simbiosis y contexto histórico siguiendo este template:\n\n${JSON.stringify(template)}\n\nContenido: ${contenidos.join("\n---\n")}`;
     const respuestaGrok = await grokService.completar(promptFinal);
 
-    await notionService.guardarMemoriaCurada({
+    await guardarMemoriaCurada({
       clave: trigger,
       seccion: "general",
       contenido: respuestaGrok,
@@ -89,8 +80,20 @@ async function ejecutarTrigger(triggerRaw) {
     };
 
   } catch (error) {
-    // Captura cualquier error en esta función y lo re-lanza para que el bloque catch del handler lo maneje.
     logger.error("selen", "Error al ejecutar trigger:", error.message, error.stack);
     throw error;
   }
 }
+
+// Configurar ruta para Vercel y modo local
+app.post('/api/selen', handler);
+
+// Iniciar servidor local (solo para desarrollo)
+if (process.env.NODE_ENV !== 'production') {
+  const port = 3000;
+  app.listen(port, () => {
+    logger.info("selen", `Servidor corriendo en http://localhost:${port}`);
+  });
+}
+
+module.exports = handler; // Exportar handler para Vercel
