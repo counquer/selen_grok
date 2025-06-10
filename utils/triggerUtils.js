@@ -6,17 +6,29 @@ const logger = require('../../utils/logger.js');
 
 dotenv.config();  // Llama a config() una vez importado dotenv
 
-const notion = new Client({ auth: process.env.NOTION_API_KEY });
-const DB_TRIGGERS = process.env.DB_TRIGGERS;
-const DB_MEMORIA_CURADA = process.env.DB_MEMORIA_CURADA;
+const notion = new Client({ auth: process.env.NOTION_API_KEY || '' });
+const DB_TRIGGERS = process.env.DB_TRIGGERS || '';
+const DB_MEMORIA_CURADA = process.env.DB_MEMORIA_CURADA || '';
+
+if (!process.env.NOTION_API_KEY || !DB_TRIGGERS || !DB_MEMORIA_CURADA) {
+  logger.warn("triggerUtils", "Alguna variable de entorno (NOTION_API_KEY, DB_TRIGGERS, DB_MEMORIA_CURADA) no está definida. Verifica .env.");
+}
+
+/**
+ * Normaliza un texto: convierte a minúsculas y elimina espacios innecesarios.
+ */
+function normalize(texto) {
+  if (typeof texto !== "string") return "";
+  return texto.trim().toLowerCase();
+}
 
 /**
  * Limpia texto: remueve caracteres invisibles y codifica como UTF-8 seguro.
  */
 function sanitizarYCodificar(texto) {
   if (typeof texto !== "string") return "";
-  const limpio = texto.trim().replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
-  return unescape(encodeURIComponent(limpio));
+  const limpio = texto.trim().replace(/[\u001F\u007F-\u009F]/g, "");
+  return encodeURIComponent(limpio);
 }
 
 /**
@@ -25,23 +37,20 @@ function sanitizarYCodificar(texto) {
 function dividirTextoEnBloques(texto, max = 1999) {
   const bloques = [];
   let posicion = 0;
-
   while (posicion < texto.length) {
     let fragmento = texto.slice(posicion, posicion + max);
     bloques.push({ text: { content: fragmento } });
     posicion += max;
   }
-
   return bloques;
 }
 
 /**
- * Busca memorias por trigger usando filtro contains y normalización básica
+ * Busca memorias por trigger usando filtro contains y normalización básica.
  */
 async function findTriggerContents(trigger) {
   try {
-    const triggerNormalizado = trigger.trim().toLowerCase();
-
+    const triggerNormalizado = normalize(trigger);
     const response = await notion.databases.query({
       database_id: DB_TRIGGERS,
       filter: {
@@ -53,8 +62,7 @@ async function findTriggerContents(trigger) {
     });
 
     const contenidos = response.results.map((page) => {
-      const contenido = page.properties?.Contenido?.rich_text?.[0]?.text?.content || "";
-      return contenido;
+      return page.properties?.Contenido?.rich_text?.[0]?.text?.content || "";
     }).filter(Boolean);
 
     logger.info("notion", `Se encontraron ${contenidos.length} memorias para trigger '${trigger}'`);
@@ -73,22 +81,13 @@ async function guardarMemoriaCurada(memoria) {
     const clave = memoria.clave?.trim() || "sin-clave";
     const seccion = memoria.seccion?.trim() || "general";
     const contenido = sanitizarYCodificar(memoria.contenido || "");
-    const contenidoLimitado = contenido.slice(0, 3000); // ✅ Límite
-    const timestamp = memoria.timestamp || new Date().toISOString();
+    const contenidoLimitado = contenido.slice(0, 3000);
 
     const propiedades = {
-      Clave: {
-        title: [{ text: { content: clave } }],
-      },
-      Seccion: {
-        select: { name: seccion },
-      },
-      Contenido: {
-        rich_text: [{ text: { content: contenidoLimitado } }],
-      },
-      Timestamp: {
-        date: { start: timestamp },
-      },
+      Clave: { title: [{ text: { content: clave } }] },
+      Seccion: { select: { name: seccion } },
+      Contenido: { rich_text: [{ text: { content: contenidoLimitado } }] },
+      Timestamp: { date: { start: memoria.timestamp || new Date().toISOString() } },
     };
 
     const response = await notion.pages.create({
@@ -96,7 +95,7 @@ async function guardarMemoriaCurada(memoria) {
       properties: propiedades,
     });
 
-    if (!response || !response.id) {
+    if (!response?.id) {
       logger.error("notion", "Respuesta inválida al guardar en Notion.");
       throw new Error("No se pudo guardar la memoria.");
     }
@@ -110,6 +109,7 @@ async function guardarMemoriaCurada(memoria) {
 }
 
 module.exports = {
-  guardarMemoriaCurada,
+  normalize,
   findTriggerContents,
+  guardarMemoriaCurada,
 };
