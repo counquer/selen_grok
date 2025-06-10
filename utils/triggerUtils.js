@@ -1,7 +1,6 @@
 const { normalize } = require(path.resolve(__dirname, '../../utils/triggerUtils.js'));
-const { Client } = require("@notionhq/client");
-const dotenv = require("dotenv").config(); // Initialize dotenv to load environment variables
-dotenv.config();
+const Client = require("@notionhq/client").Client;
+const dotenv = require("dotenv");
 
 const notion = new Client({ auth: process.env.NOTION_API_KEY });
 
