@@ -1,8 +1,13 @@
-// Servicio de cache básico (ESM)
-const cacheService = {
-  get: (key) => null,
-  set: (key, value) => {},
-  clear: () => {}
-};
+// cache/cacheService.js
+const NodeCache = require('node-cache');
+const cache = new NodeCache({ stdTTL: 600 }); // 10 minutos TTL
 
-export default cacheService;
+async function get(key) {
+  return cache.get(key);
+}
+
+async function set(key, value) {
+  return cache.set(key, value);
+}
+
+module.exports = { get, set };
