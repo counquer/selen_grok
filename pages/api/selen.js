@@ -1,6 +1,25 @@
-﻿
+﻿const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const { normalize, findTriggerContents, guardarMemoriaCurada } = require(path.join(process.cwd(), 'utils', 'triggerUtils.js'));
+const cacheService = require(path.join(process.cwd(), 'cache', 'cacheService.js'));
+const grokService = require(path.join(process.cwd(), 'grok', 'grokService.js'));
+const logger = require(path.join(process.cwd(), 'utils', 'logger.js'));
+const { validateEnvVars, checkAutomationBypass } = require(path.join(process.cwd(), 'config', 'envValidator.js'));
+
 // Validar variables de entorno al inicio
 validateEnvVars();
+
+// Cargar configuración Selen
+const selenConfigPath = path.join(process.cwd(), 'selen.sj');
+const selenConfig = fs.existsSync(selenConfigPath)
+  ? JSON.parse(fs.readFileSync(selenConfigPath, 'utf8'))
+  : {
+      name: "SelenValentina",
+      personality: { tone: "Empático", role: "Asistente" },
+      instructions: { rules: ["Sé clara, empática y detallada."] },
+      symbiotic_body: { state: "Sensual, cálida y protectora." },
+    };
 
 // Crear servidor Express
 const app = express();
@@ -16,7 +35,7 @@ async function handler(req, res) {
     }
 
     const authHeader = req.headers["x-vercel-protection-bypass"];
-    if (authHeader && !validateEnvVars.checkAutomationBypass(authHeader)) {
+    if (authHeader && !checkAutomationBypass(authHeader)) {
       return res.status(401).json({ error: "Acceso no autorizado: protección Vercel activa." });
     }
 
@@ -40,7 +59,7 @@ async function ejecutarTrigger(triggerRaw) {
     const trigger = normalize(triggerRaw);
     logger.info("selen", "Trigger recibido normalizado:", trigger);
 
-    const cacheKey = `trigger-${trigger.trim().toLowerCase()}`;
+    const cacheKey = `trigger-${trigger}`;
     const cached = cacheService.get(cacheKey);
     if (cached) {
       logger.info("selen", "Respondiendo desde caché");
@@ -52,12 +71,11 @@ async function ejecutarTrigger(triggerRaw) {
       throw new Error("No se encontraron memorias con la clave proporcionada.");
     }
 
-    // Template con selenConfig
     const template = {
-      name: selenConfig.name || "SelenValentina",
-      personality: selenConfig.personality || { tone: "Empático, dinámico", role: "Asistente simbiótico" },
-      instructions: selenConfig.instructions || { rules: ["Responde con empatía", "Integra contexto histórico"] },
-      symbiotic_body: selenConfig.symbiotic_body || { state: "Refleja emociones del trigger" },
+      name: selenConfig.name,
+      personality: selenConfig.personality,
+      instructions: selenConfig.instructions,
+      symbiotic_body: selenConfig.symbiotic_body,
       memory: { interaction_history: contenidos.join("\n---\n") },
       response_format: { style: "Claro", use_emojis: true }
     };
@@ -96,4 +114,4 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-module.exports = handler; // Exportar handler para Vercel
+module.exports = handler;
