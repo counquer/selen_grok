@@ -1,19 +1,23 @@
-﻿// pages/api/selen.js: Servidor API para SelenValentina, un asistente impulsado por IA.
+﻿// pages/api/selen.js: API para SelenValentina, un asistente impulsado por IA.
 // Procesa solicitudes POST a /api/selen con un campo 'trigger' en el cuerpo o query.
 // Usa grokService para respuestas de IA, cacheService para caché y Notion para almacenamiento.
 
-const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { normalize, findTriggerContents } = require(path.join(process.cwd(), 'utils', 'triggerUtils.js'));
-const { guardarMemoriaCurada } = require(path.join(process.cwd(), 'notion', 'notionService.js'));
+const { normalize } = require(path.join(process.cwd(), 'utils', 'triggerUtils.js'));
+const { findTriggerContents, guardarMemoriaCurada } = require(path.join(process.cwd(), 'notion', 'notionService.js'));
 const cacheService = require(path.join(process.cwd(), 'cache', 'cacheService.js'));
 const grokService = require(path.join(process.cwd(), 'grok', 'grokService.js'));
 const logger = require(path.join(process.cwd(), 'utils', 'logger.js'));
 const { validateEnvVars, checkAutomationBypass } = require(path.join(process.cwd(), 'config', 'envValidator.js'));
 
 // Validar variables de entorno al inicio
-validateEnvVars();
+try {
+  validateEnvVars();
+} catch (error) {
+  logger.error("selen", "Error al validar variables de entorno:", error.message, error.stack);
+  throw error;
+}
 
 // Cargar y validar configuración Selen
 const selenConfigPath = path.join(process.cwd(), 'selen.json');
@@ -36,7 +40,7 @@ try {
     }
   }
 } catch (error) {
-  logger.error("selen", "Error al leer o parsear selen.json:", error.message);
+  logger.error("selen", "Error al leer o parsear selen.json:", error.message, error.stack);
   selenConfig = {
     name: "SelenValentina",
     personality: { tone: "Empático", role: "Asistente" },
@@ -45,23 +49,16 @@ try {
   };
 }
 
-// Crear servidor Express
-const app = express();
-app.use(express.json());
-
-// Endpoint de salud para verificar el estado del servidor
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    environment: process.env.NODE_ENV || 'development',
-    timestamp: new Date().toISOString(),
-  });
-});
-
 // Handler para API POST
-async function handler(req, res) {
+export default async function handler(req, res) {
   try {
-    logger.info("selen", "Solicitud recibida en /api/selen:", req.method, req.url);
+    logger.info("selen", "Solicitud recibida en /api/selen:", {
+      method: req.method,
+      url: req.url,
+      body: req.body,
+      query: req.query,
+      headers: req.headers,
+    });
 
     if (req.method !== "POST") {
       return res.status(405).json({
@@ -98,6 +95,12 @@ async function handler(req, res) {
 
   } catch (error) {
     logger.error("selen", "Error en la función /api/selen:", error.message, error.stack);
+    console.error("Error detallado:", {
+      message: error.message,
+      stack: error.stack,
+      triggerRaw,
+      request: { method: req.method, url: req.url, body: req.body, query: req.query },
+    }); // Log temporal para depuración
     return res.status(500).json({
       status: 'error',
       error: `Error interno del servidor: ${error.message}`,
@@ -113,7 +116,7 @@ async function ejecutarTrigger(triggerRaw) {
     logger.info("selen", "Trigger recibido normalizado:", trigger);
 
     const cacheKey = `trigger-${trigger}`;
-    const cached = await cacheService.get(cacheKey); // Asumiendo que cacheService.get es asíncrono
+    const cached = await cacheService.get(cacheKey);
     if (cached) {
       logger.info("selen", "Respondiendo desde caché");
       return { ...cached, fromCache: true };
@@ -134,20 +137,20 @@ async function ejecutarTrigger(triggerRaw) {
     };
 
     const promptFinal = `Selen, responde con toda tu simbiosis y contexto histórico siguiendo este template:\n\n${JSON.stringify(template)}\n\nContenido: ${contenidos.join("\n---\n")}`;
-    const respuestaGrok = await grokService.completar(promptFinal); // Asumiendo que grokService.completar es asíncrono
+    const respuestaGrok = await grokService.completar(promptFinal);
 
     await guardarMemoriaCurada({
       clave: trigger,
       seccion: "general",
       contenido: respuestaGrok,
-      prioridad: "alta", // Ajusta según lógica específica
+      prioridad: "alta",
       estado: "activo",
-      categoria_emocional: "neutral", // Ajusta según lógica específica
+      categoria_emocional: "neutral",
       etiquetas: ["automático", "grok"],
       timestamp: new Date().toISOString(),
     });
 
-    await cacheService.set(cacheKey, { contenidos, timestamp: Date.now() }); // Asumiendo que cacheService.set es asíncrono
+    await cacheService.set(cacheKey, { contenidos, timestamp: Date.now() });
 
     return {
       prompt: promptFinal,
@@ -159,16 +162,3 @@ async function ejecutarTrigger(triggerRaw) {
     throw error;
   }
 }
-
-// Configurar ruta para Vercel y modo local
-app.post('/api/selen', handler);
-
-// Iniciar servidor local (solo para desarrollo)
-if (process.env.NODE_ENV !== 'production') {
-  const port = process.env.PORT || 3000;
-  app.listen(port, () => {
-    logger.info("selen", `Servidor corriendo en http://localhost:${port}`);
-  });
-}
-
-module.exports = handler;

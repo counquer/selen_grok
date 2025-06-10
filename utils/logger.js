@@ -1,39 +1,38 @@
 // utils/logger.js
+const winston = require('winston');
+const path = require('path');
+const fs = require('fs');
 
-const isDev = process.env.NODE_ENV !== "production";
+const isDev = process.env.NODE_ENV !== 'production';
 
-function format(level, modulo, mensaje) {
-  const timestamp = new Date().toISOString();
-  return `[${timestamp}] [${level.toUpperCase()}] [${modulo}] ${mensaje}`;
+// Verificar que el directorio logs existe
+const logDir = path.join(process.cwd(), 'logs');
+if (!fs.existsSync(logDir)) {
+  fs.mkdirSync(logDir, { recursive: true });
 }
 
-const logger = {
-  info(modulo, mensaje) {
-    const texto = format("info", modulo, mensaje);
-    if (isDev) {
-      console.log("🔵", texto);
-    } else {
-      console.log(texto);
-    }
-  },
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.json(),
+    winston.format.printf(({ timestamp, level, message, modulo }) => {
+      const formatted = `[timestamp: ${timestamp}] [${level.toUpperCase()}] [${modulo}] ${message}`;
+      return isDev ? `${level === 'info' ? '🔵' : level === 'warn' ? '🟠' : '🔴'} ${formatted}` : formatted;
+    })
+  ),
+  transports: [
+    new winston.transports.Console(),
+    new winston.transports.File({ filename: path.join(logDir, 'error.log'), level: 'error' }),
+    new winston.transports.File({ filename: path.join(logDir, 'combined.log') }),
+  ],
+});
 
-  warn(modulo, mensaje) {
-    const texto = format("warn", modulo, mensaje);
-    if (isDev) {
-      console.warn("🟠", texto);
-    } else {
-      console.warn(texto);
-    }
-  },
+// Log inicial para confirmar carga
+logger.info("logger", `Logger inicializado. Directorio de logs: ${logDir}`);
 
-  error(modulo, mensaje) {
-    const texto = format("error", modulo, mensaje);
-    if (isDev) {
-      console.error("🔴", texto);
-    } else {
-      console.error(texto);
-    }
-  }
+module.exports = {
+  info: (modulo, mensaje) => logger.info(mensaje, { modulo }),
+  warn: (modulo, mensaje) => logger.warn(mensaje, { modulo }),
+  error: (modulo, mensaje, stack) => logger.error(mensaje, { modulo, stack }),
 };
-
-export default logger;
