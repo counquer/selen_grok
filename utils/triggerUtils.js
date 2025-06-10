@@ -3,14 +3,9 @@ const { normalize } = require(path.resolve(__dirname, '../../utils/triggerUtils.
 const { Client } = require("@notionhq/client");
 const dotenv = require("dotenv");
 const logger = require('../../utils/logger.js');
-
-dotenv.config(); // Solo una vez
-
 const notion = new Client({ auth: process.env.NOTION_API_KEY });
-
 const DB_TRIGGERS = process.env.DB_TRIGGERS;
 const DB_MEMORIA_CURADA = process.env.DB_MEMORIA_CURADA;
-
 
 /**
  * Limpia texto: remueve caracteres invisibles y codifica como UTF-8 seguro.
