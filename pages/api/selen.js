@@ -1,12 +1,12 @@
-﻿// selen.js: Servidor API para SelenValentina, un asistente impulsado por IA.
+﻿// pages/api/selen.js: Servidor API para SelenValentina, un asistente impulsado por IA.
 // Procesa solicitudes POST a /api/selen con un campo 'trigger' en el cuerpo o query.
-// Usa grokService para respuestas de IA y cacheService para caché de respuestas.
+// Usa grokService para respuestas de IA, cacheService para caché y Notion para almacenamiento.
 
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { normalize } = require(path.join(process.cwd(), 'utils', 'triggerUtils.js'));
-
+const { normalize, findTriggerContents } = require(path.join(process.cwd(), 'utils', 'triggerUtils.js'));
+const { guardarMemoriaCurada } = require(path.join(process.cwd(), 'notion', 'notionService.js'));
 const cacheService = require(path.join(process.cwd(), 'cache', 'cacheService.js'));
 const grokService = require(path.join(process.cwd(), 'grok', 'grokService.js'));
 const logger = require(path.join(process.cwd(), 'utils', 'logger.js'));
@@ -16,7 +16,7 @@ const { validateEnvVars, checkAutomationBypass } = require(path.join(process.cwd
 validateEnvVars();
 
 // Cargar y validar configuración Selen
-const selenConfigPath = path.join(process.cwd(), 'selen.json'); // Corregido de .sj a .json
+const selenConfigPath = path.join(process.cwd(), 'selen.json');
 let selenConfig;
 try {
   selenConfig = fs.existsSync(selenConfigPath)
@@ -92,7 +92,7 @@ async function handler(req, res) {
     const resultado = await ejecutarTrigger(triggerRaw);
     return res.status(200).json({
       status: 'success',
-      data: { ...resultado, savedToNotion: true }, // Nota: savedToNotion podría necesitar validación
+      data: { ...resultado, savedToNotion: true },
       timestamp: new Date().toISOString(),
     });
 
@@ -119,7 +119,7 @@ async function ejecutarTrigger(triggerRaw) {
       return { ...cached, fromCache: true };
     }
 
-    const contenidos = await findTriggerContents(trigger); // Asumido que está definido en un módulo externo
+    const contenidos = await findTriggerContents(trigger);
     if (!contenidos || contenidos.length === 0) {
       throw new Error("No se encontraron memorias con la clave proporcionada.");
     }
@@ -136,10 +136,14 @@ async function ejecutarTrigger(triggerRaw) {
     const promptFinal = `Selen, responde con toda tu simbiosis y contexto histórico siguiendo este template:\n\n${JSON.stringify(template)}\n\nContenido: ${contenidos.join("\n---\n")}`;
     const respuestaGrok = await grokService.completar(promptFinal); // Asumiendo que grokService.completar es asíncrono
 
-    await guardarMemoriaCurada({ // Asumido que está definido en un módulo externo
+    await guardarMemoriaCurada({
       clave: trigger,
       seccion: "general",
       contenido: respuestaGrok,
+      prioridad: "alta", // Ajusta según lógica específica
+      estado: "activo",
+      categoria_emocional: "neutral", // Ajusta según lógica específica
+      etiquetas: ["automático", "grok"],
       timestamp: new Date().toISOString(),
     });
 

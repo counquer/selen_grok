@@ -1,6 +1,7 @@
 const { Client } = require("@notionhq/client");
 const dotenv = require("dotenv");
-const logger = require("../utils/logger.js");
+const path = require("path");
+const logger = require(path.join(process.cwd(), "utils", "logger.js"));
 dotenv.config();
 
 const notion = new Client({ auth: process.env.NOTION_API_KEY });
@@ -56,23 +57,27 @@ async function findTriggerContents(trigger) {
     }).filter(Boolean);
 
     logger.info("notion", `Se encontraron ${contenidos.length} memorias para trigger '${trigger}'`);
-    return contenidos;
+    return contenidos.length > 0 ? contenidos : ['No se encontraron contenidos.'];
   } catch (error) {
-    logger.error("notion", "Error al consultar Notion:", error.message);
+    logger.error("notion", "Error al consultar Notion:", error.message, error.stack);
     throw error;
   }
 }
 
 /**
- * Guarda una memoria curada en Notion con clave, sección, contenido dividido y timestamp.
+ * Guarda una memoria curada en Notion con todas las propiedades de DB_MEMORIA_CURADA.
  */
 async function guardarMemoriaCurada(memoria) {
   try {
     const clave = memoria.clave?.trim() || "sin-clave";
     const seccion = memoria.seccion?.trim() || "general";
     const contenido = sanitizarYCodificar(memoria.contenido || "");
-    const contenidoLimitado = contenido.slice(0, 3000); // ✅ Límite
+    const contenidoLimitado = contenido.slice(0, 2000); // Límite de Notion para rich_text
     const timestamp = memoria.timestamp || new Date().toISOString();
+    const prioridad = memoria.prioridad || "media"; // Valor por defecto
+    const estado = memoria.estado || "activo"; // Valor por defecto
+    const categoriaEmocional = memoria.categoria_emocional || "neutral"; // Valor por defecto
+    const etiquetas = memoria.etiquetas || ["automático"]; // Valor por defecto
 
     const propiedades = {
       Clave: {
@@ -82,7 +87,19 @@ async function guardarMemoriaCurada(memoria) {
         select: { name: seccion },
       },
       Contenido: {
-        rich_text: [{ text: { content: contenidoLimitado } }],
+        rich_text: dividirTextoEnBloques(contenidoLimitado),
+      },
+      Prioridad: {
+        select: { name: prioridad },
+      },
+      Estado: {
+        select: { name: estado },
+      },
+      Categoria_emocional: {
+        select: { name: categoriaEmocional },
+      },
+      Etiquetas: {
+        multi_select: etiquetas.map(tag => ({ name: tag })),
       },
       Timestamp: {
         date: { start: timestamp },
@@ -102,7 +119,7 @@ async function guardarMemoriaCurada(memoria) {
     logger.info("notion", "Memoria curada guardada correctamente:", response.id);
     return response;
   } catch (err) {
-    logger.error("notion", "Error al guardar memoria curada:", err.message);
+    logger.error("notion", "Error al guardar memoria curada:", err.message, err.stack);
     throw err;
   }
 }
