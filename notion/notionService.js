@@ -1,47 +1,48 @@
-// notion/notionService.js
 const { Client } = require("@notionhq/client");
 const dotenv = require("dotenv");
 const path = require("path");
+const { normalize } = require(path.resolve(__dirname, '../utils/triggerUtils.js'));
 const logger = require(path.resolve(__dirname, '../utils/logger.js'));
+
 dotenv.config();
 
-const notion = new Client({ auth: process.env.NOTION_API_KEY });
+const notion = new Client({ auth: process.env.NOTION_API_KEY || '' });
+const DB_TRIGGERS = process.env.DB_TRIGGERS || '';
+const DB_MEMORIA_CURADA = process.env.DB_MEMORIA_CURADA || '';
 
-const DB_TRIGGERS = process.env.DB_TRIGGERS;
-const DB_MEMORIA_CURADA = process.env.DB_MEMORIA_CURADA;
+if (!process.env.NOTION_API_KEY || !DB_TRIGGERS || !DB_MEMORIA_CURADA) {
+  logger.warn("notionService", "Alguna variable de entorno (NOTION_API_KEY, DB_TRIGGERS, DB_MEMORIA_CURADA) no est· definida. Verifica .env.");
+}
 
 /**
  * Limpia texto: remueve caracteres invisibles y codifica como UTF-8 seguro.
  */
 function sanitizarYCodificar(texto) {
   if (typeof texto !== "string") return "";
-  const limpio = texto.trim().replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
-  return unescape(encodeURIComponent(limpio));
+  const limpio = texto.trim().replace(/[\u001F\u007F-\u009F]/g, "");
+  return encodeURIComponent(limpio);
 }
 
 /**
- * Divide texto largo en bloques compatibles con Notion (‚â§2000 caracteres cada uno).
+ * Divide texto largo en bloques compatibles con Notion (2000 caracteres cada uno).
  */
 function dividirTextoEnBloques(texto, max = 1999) {
   const bloques = [];
   let posicion = 0;
-
   while (posicion < texto.length) {
     let fragmento = texto.slice(posicion, posicion + max);
     bloques.push({ text: { content: fragmento } });
     posicion += max;
   }
-
   return bloques;
 }
 
 /**
- * Busca memorias por trigger usando filtro contains y normalizaci√≥n b√°sica
+ * Busca memorias por trigger usando filtro contains y normalizaciÛn b·sica.
  */
 async function findTriggerContents(trigger) {
   try {
-    const triggerNormalizado = trigger.trim().toLowerCase();
-
+    const triggerNormalizado = normalize(trigger);
     const response = await notion.databases.query({
       database_id: DB_TRIGGERS,
       filter: {
@@ -53,8 +54,7 @@ async function findTriggerContents(trigger) {
     });
 
     const contenidos = response.results.map((page) => {
-      const contenido = page.properties?.Contenido?.rich_text?.[0]?.text?.content || "";
-      return contenido;
+      return page.properties?.Contenido?.rich_text?.[0]?.text?.content || "";
     }).filter(Boolean);
 
     logger.info("notion", `Se encontraron ${contenidos.length} memorias para trigger '${trigger}'`);
@@ -66,45 +66,20 @@ async function findTriggerContents(trigger) {
 }
 
 /**
- * Guarda una memoria curada en Notion con todas las propiedades de DB_MEMORIA_CURADA.
+ * Guarda una memoria curada en Notion con clave, secciÛn, contenido dividido y timestamp.
  */
 async function guardarMemoriaCurada(memoria) {
   try {
     const clave = memoria.clave?.trim() || "sin-clave";
     const seccion = memoria.seccion?.trim() || "general";
     const contenido = sanitizarYCodificar(memoria.contenido || "");
-    const contenidoLimitado = contenido.slice(0, 2000); // L√≠mite de Notion para rich_text
-    const timestamp = memoria.timestamp || new Date().toISOString();
-    const prioridad = memoria.prioridad || "media"; // Valor por defecto
-    const estado = memoria.estado || "activo"; // Valor por defecto
-    const categoriaEmocional = memoria.categoria_emocional || "neutral"; // Valor por defecto
-    const etiquetas = memoria.etiquetas || ["autom√°tico"]; // Valor por defecto
+    const contenidoLimitado = contenido.slice(0, 3000);
 
     const propiedades = {
-      Clave: {
-        title: [{ text: { content: clave } }],
-      },
-      Seccion: {
-        select: { name: seccion },
-      },
-      Contenido: {
-        rich_text: dividirTextoEnBloques(contenidoLimitado),
-      },
-      Prioridad: {
-        select: { name: prioridad },
-      },
-      Estado: {
-        select: { name: estado },
-      },
-      Categoria_emocional: {
-        select: { name: categoriaEmocional },
-      },
-      Etiquetas: {
-        multi_select: etiquetas.map(tag => ({ name: tag })),
-      },
-      Timestamp: {
-        date: { start: timestamp },
-      },
+      Clave: { title: [{ text: { content: clave } }] },
+      Seccion: { select: { name: seccion } },
+      Contenido: { rich_text: [{ text: { content: contenidoLimitado } }] },
+      Timestamp: { date: { start: memoria.timestamp || new Date().toISOString() } },
     };
 
     const response = await notion.pages.create({
@@ -112,8 +87,8 @@ async function guardarMemoriaCurada(memoria) {
       properties: propiedades,
     });
 
-    if (!response || !response.id) {
-      logger.error("notion", "Respuesta inv√°lida al guardar en Notion.");
+    if (!response?.id) {
+      logger.error("notion", "Respuesta inv·lida al guardar en Notion.");
       throw new Error("No se pudo guardar la memoria.");
     }
 
@@ -126,6 +101,6 @@ async function guardarMemoriaCurada(memoria) {
 }
 
 module.exports = {
-  guardarMemoriaCurada,
   findTriggerContents,
+  guardarMemoriaCurada,
 };
