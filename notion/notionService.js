@@ -1,7 +1,8 @@
+// notion/notionService.js
 const { Client } = require("@notionhq/client");
 const dotenv = require("dotenv");
 const path = require("path");
-const logger = require(path.join(process.cwd(), "utils", "logger.js"));
+const logger = require(path.resolve(__dirname, '../utils/logger.js'));
 dotenv.config();
 
 const notion = new Client({ auth: process.env.NOTION_API_KEY });

@@ -4,16 +4,18 @@
 
 const path = require('path');
 const fs = require('fs');
-const { normalize } = require(path.join(process.cwd(), 'utils', 'triggerUtils.js'));
-const { findTriggerContents, guardarMemoriaCurada } = require(path.join(process.cwd(), 'notion', 'notionService.js'));
-const cacheService = require(path.join(process.cwd(), 'cache', 'cacheService.js'));
-const grokService = require(path.join(process.cwd(), 'grok', 'grokService.js'));
-const logger = require(path.join(process.cwd(), 'utils', 'logger.js'));
-const { validateEnvVars, checkAutomationBypass } = require(path.join(process.cwd(), 'config', 'envValidator.js'));
+const { normalize } = require(path.resolve(__dirname, '../../utils/triggerUtils.js'));
+const { findTriggerContents, guardarMemoriaCurada } = require(path.resolve(__dirname, '../../notion/notionService.js'));
+const cacheService = require(path.resolve(__dirname, '../../cache/cacheService.js'));
+const grokService = require(path.resolve(__dirname, '../../grok/grokService.js'));
+const logger = require(path.resolve(__dirname, '../../utils/logger.js'));
+const { validateEnvVars, checkAutomationBypass } = require(path.resolve(__dirname, '../../config/envValidator.js'));
 
 // Validar variables de entorno al inicio
 try {
+  logger.info("selen", "Validando variables de entorno...");
   validateEnvVars();
+  logger.info("selen", "Variables de entorno validadas correctamente");
 } catch (error) {
   logger.error("selen", "Error al validar variables de entorno:", error.message, error.stack);
   throw error;
@@ -23,6 +25,7 @@ try {
 const selenConfigPath = path.join(process.cwd(), 'selen.json');
 let selenConfig;
 try {
+  logger.info("selen", "Cargando configuración desde selen.json...");
   selenConfig = fs.existsSync(selenConfigPath)
     ? JSON.parse(fs.readFileSync(selenConfigPath, 'utf8'))
     : {
@@ -39,6 +42,7 @@ try {
       throw new Error(`Falta el campo requerido en selenConfig: ${field}`);
     }
   }
+  logger.info("selen", "Configuración cargada correctamente");
 } catch (error) {
   logger.error("selen", "Error al leer o parsear selen.json:", error.message, error.stack);
   selenConfig = {
@@ -86,7 +90,9 @@ export default async function handler(req, res) {
       });
     }
 
+    logger.info("selen", "Ejecutando trigger...");
     const resultado = await ejecutarTrigger(triggerRaw);
+    logger.info("selen", "Trigger ejecutado correctamente");
     return res.status(200).json({
       status: 'success',
       data: { ...resultado, savedToNotion: true },
@@ -112,9 +118,11 @@ export default async function handler(req, res) {
 // Lógica compartida API
 async function ejecutarTrigger(triggerRaw) {
   try {
+    logger.info("selen", "Normalizando trigger...");
     const trigger = normalize(triggerRaw);
     logger.info("selen", "Trigger recibido normalizado:", trigger);
 
+    logger.info("selen", "Consultando caché...");
     const cacheKey = `trigger-${trigger}`;
     const cached = await cacheService.get(cacheKey);
     if (cached) {
@@ -122,11 +130,14 @@ async function ejecutarTrigger(triggerRaw) {
       return { ...cached, fromCache: true };
     }
 
+    logger.info("selen", "Consultando Notion...");
     const contenidos = await findTriggerContents(trigger);
     if (!contenidos || contenidos.length === 0) {
       throw new Error("No se encontraron memorias con la clave proporcionada.");
     }
+    logger.info("selen", "Contenidos obtenidos de Notion:", contenidos.length);
 
+    logger.info("selen", "Generando prompt para Grok...");
     const template = {
       name: selenConfig.name,
       personality: selenConfig.personality,
@@ -137,8 +148,11 @@ async function ejecutarTrigger(triggerRaw) {
     };
 
     const promptFinal = `Selen, responde con toda tu simbiosis y contexto histórico siguiendo este template:\n\n${JSON.stringify(template)}\n\nContenido: ${contenidos.join("\n---\n")}`;
+    logger.info("selen", "Enviando prompt a Grok...");
     const respuestaGrok = await grokService.completar(promptFinal);
+    logger.info("selen", "Respuesta de Grok recibida");
 
+    logger.info("selen", "Guardando memoria en Notion...");
     await guardarMemoriaCurada({
       clave: trigger,
       seccion: "general",
@@ -149,8 +163,11 @@ async function ejecutarTrigger(triggerRaw) {
       etiquetas: ["automático", "grok"],
       timestamp: new Date().toISOString(),
     });
+    logger.info("selen", "Memoria guardada en Notion");
 
+    logger.info("selen", "Guardando en caché...");
     await cacheService.set(cacheKey, { contenidos, timestamp: Date.now() });
+    logger.info("selen", "Guardado en caché");
 
     return {
       prompt: promptFinal,
