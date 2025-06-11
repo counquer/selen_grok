@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Selen - Tu Compañera</title>
+    <style>
+        body { font-family: Arial; margin: 20px; }
+        .chat-box { border: 1px solid #ccc; padding: 10px; height: 400px; overflow-y: scroll; }
+        .input-box { margin-top: 10px; }
+        .historial { color: #555; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <h1>Selen</h1>
+    <div class="chat-box">
+        <p class="historial">{{ historial | replace('\n', '<br>') | safe }}</p>
+        {% if mensaje %}
+            <p><b>Tú:</b> {{ mensaje }}</p>
+            <p><b>Selen:</b> {{ respuesta }}</p>
+        {% endif %}
+    </div>
+    <form method="POST" class="input-box">
+        <input type="text" name="mensaje" placeholder="Habla con Selen..." style="width: 80%;">
+        <input type="submit" value="Enviar">
+    </form>
+</body>
+</html>
