@@ -3,8 +3,10 @@ const path = require('path');
 
 // Ruta donde guardarás las respuestas
 const responseDirectory = path.join(__dirname, 'Memorias');
+
+// Asegurarse de que la carpeta 'Memorias' exista
 if (!fs.existsSync(responseDirectory)) {
-    fs.mkdirSync(responseDirectory);
+    fs.mkdirSync(responseDirectory, { recursive: true });  // 'recursive' asegura que se creen carpetas anidadas si es necesario
 }
 
 // Ejemplo de respuesta de Selen
