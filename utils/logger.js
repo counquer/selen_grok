@@ -24,25 +24,33 @@ function timestamp() {
 }
 
 function writeToFile(filePath, message) {
-  ensureLogDirExists();
-  fs.appendFile(filePath, message + "\n", (err) => {
-    if (err) console.error("⛔ Error escribiendo log:", err);
-  });
+  try {
+    ensureLogDirExists();
+    fs.appendFileSync(filePath, message + "\n", "utf8"); // Escritura síncrona para evitar pérdida de logs
+  } catch (err) {
+    console.error("⛔ Error escribiendo log:", err.message);
+  }
 }
 
 function log(level, label, ...messageParts) {
   const labelTag = `[${label}]`;
   const prefix = `[${timestamp()}] [${level.toUpperCase()}] ${labelTag}`;
-  const fullMessage = messageParts.map(m => typeof m === "object" ? JSON.stringify(m) : m).join(" ");
+  const fullMessage = messageParts
+    .map((m) => (typeof m === "object" ? JSON.stringify(m, null, 2) : m))
+    .join(" ");
   const finalLine = `${prefix} ${fullMessage}`;
 
+  // Mostrar en consola según el nivel
   if (level === "error") {
     console.error(finalLine);
     writeToFile(errorFile, finalLine);
+  } else if (level === "debug") {
+    console.debug(finalLine); // Usar console.debug para mensajes de depuración
   } else {
     console.log(finalLine);
   }
 
+  // Escribir en combined.log para todos los niveles
   writeToFile(logFile, finalLine);
 }
 
@@ -52,5 +60,6 @@ ensureLogDirExists();
 module.exports = {
   info: (label, ...msg) => log("info", label, ...msg),
   warn: (label, ...msg) => log("warn", label, ...msg),
-  error: (label, ...msg) => log("error", label, ...msg)
+  error: (label, ...msg) => log("error", label, ...msg),
+  debug: (label, ...msg) => log("debug", label, ...msg) // Método debug añadido
 };

@@ -1,71 +1,257 @@
-@echo off
-setlocal EnableDelayedExpansion
+const { promisify } = require('util');
+const readFileAsync = promisify(require('fs').readFile);
+const fs = require('fs');
+const path = require('path');
+const { parse } = require('csv-parse/sync');
+const { normalize } = require('../../utils/triggerUtils.js');
+const cacheService = require('../../cache/cacheService.js');
+const logger = require('../../utils/logger.js');
+const { validateEnvVars, checkAutomationBypass } = require('../../config/envValidator.js');
 
-:: CONFIGURACION
-set "baseDir=E:\Proyectos\Selen-Grok"
-set "csvPath=%baseDir%\Memorias\DB_TRIGGERS.csv"
-set "logPath=%baseDir%\logs"
-set "trigger=selen"
+// Importando el cliente de xAI (Grok)
+const { OpenAI } = require('openai');
 
-:: ASEGURAR DIRECTORIO DE LOGS
-if not exist "%logPath%" (
-    echo [INFO] Creando carpeta de logs en %logPath%
-    mkdir "%logPath%"
-)
+// Configuración de OpenAI (xAI)
+const config = {
+  apiKey: process.env.GROK_API_KEY, // Asegúrate de tener esta variable en tu .env
+  baseURL: 'https://api.x.ai/v1',
+};
 
-echo [INFO] Verificando existencia del archivo CSV...
-if not exist "%csvPath%" (
-    echo [ERROR] El archivo no existe en: %csvPath%
-    echo [%date% %time%] [ERROR] CSV no encontrado: %csvPath% >> "%logPath%\error.log"
-    pause
-    exit /b 1
-)
-echo [OK] Archivo CSV encontrado.
+const openai = new OpenAI(config);
 
-echo [INFO] Verificando si el trigger "%trigger%" existe en la columna "Clave" del CSV...
-powershell -Command ^
-  "$csv = Import-Csv -Path '%csvPath%' -Delimiter ','; " ^
-  "$match = $csv | Where-Object { $_.Clave -and $_.Clave.Trim().ToLower() -eq '%trigger%' }; " ^
-  "if ($match) { Write-Host '[OK] Trigger encontrado en el CSV.' -ForegroundColor Green } else { " ^
-  "  Write-Host '[ERROR] Trigger no encontrado en el CSV.' -ForegroundColor Red; " ^
-  "  Add-Content -Path '%logPath%\error.log' -Value ('[' + (Get-Date -Format o) + '] [ERROR] Trigger no encontrado: %trigger%'); exit 1 }"
+let selenConfig;
+let configLoaded = false;
+let triggerMap = new Map();
+let initializationPromise = null;
 
-echo [INFO] Iniciando servidor Selen-Grok en segundo plano...
-cd /d "%baseDir%"
-start "" /B cmd /c "npm run dev > nul 2>&1"
+// Inicialización única de configuración y triggers
+async function initialize() {
+  if (!initializationPromise) {
+    initializationPromise = Promise.all([loadConfig(), loadTriggerMap()]);
+  }
+  await initializationPromise;
+}
 
-echo [INFO] Esperando 5 segundos para que el servidor se levante...
-timeout /t 5 /nobreak >nul
+async function loadConfig() {
+  if (configLoaded) return selenConfig;
+  try {
+    logger.info("selen", "Cargando configuración desde selen.json...");
+    const selenConfigPath = path.join(process.cwd(), 'selen.json');
+    selenConfig = JSON.parse(await readFileAsync(selenConfigPath, 'utf8'));
+    logger.debug("selen", "Configuración cargada:", selenConfig);
+  } catch (error) {
+    logger.warn("selen", "Error al leer selen.json, usando valores por defecto:", error.message);
+    selenConfig = {
+      name: "SelenValentina",
+      personality: { tone: "Empatico", role: "Asistente" },
+      instructions: { rules: ["Se clara, empatica y detallada."] },
+      symbiotic_body: { state: "Sensual, cálida y protectora." }
+    };
+  }
+  configLoaded = true;
+  return selenConfig;
+}
 
-echo [INFO] Verificando que el puerto 3000 esté activo...
-powershell -Command ^
-  "if (Test-NetConnection -ComputerName localhost -Port 3000 -InformationLevel Quiet) { " ^
-  "  Write-Host '[OK] Puerto 3000 activo.' -ForegroundColor Green } else { " ^
-  "  Write-Host '[ERROR] El servidor no responde en localhost:3000.' -ForegroundColor Red; " ^
-  "  Add-Content -Path '%logPath%\error.log' -Value ('[' + (Get-Date -Format o) + '] [ERROR] Puerto 3000 no responde.'); exit 1 }"
+async function loadTriggerMap() {
+  const csvPath = path.join(process.cwd(), 'Memorias', 'DB_TRIGGERS.csv');
+  logger.info("selen", `🧭 Ruta completa del CSV: ${csvPath}`);
 
-echo [INFO] Ejecutando prueba de API con trigger "%trigger%"...
-powershell -Command ^
-  "$body = @{ trigger = '%trigger%' } | ConvertTo-Json -Compress; " ^
-  "try { " ^
-  "  $response = Invoke-WebRequest -Uri 'http://localhost:3000/api/selen' -Method POST -Body $body -ContentType 'application/json; charset=utf-8'; " ^
-  "  Write-Host '[OK] Respuesta recibida. Estado HTTP:' $response.StatusCode -ForegroundColor Green; " ^
-  "  Write-Host '[RESPUESTA]:' $response.Content -ForegroundColor Gray " ^
-  "} catch { " ^
-  "  Write-Host '[ERROR] Fallo la solicitud al endpoint.' -ForegroundColor Red; " ^
-  "  if ($_.Exception.Response) { " ^
-  "    $reader = New-Object IO.StreamReader($_.Exception.Response.GetResponseStream()); " ^
-  "    $errorContent = $reader.ReadToEnd(); " ^
-  "    Write-Host '[DETALLE]:' $errorContent -ForegroundColor Yellow; " ^
-  "    Add-Content -Path '%logPath%\error.log' -Value ('[' + (Get-Date -Format o) + '] [ERROR] ' + $errorContent) " ^
-  "  } else { " ^
-  "    Write-Host '[DETALLE] No se obtuvo respuesta del servidor.' -ForegroundColor Yellow; " ^
-  "    Add-Content -Path '%logPath%\error.log' -Value ('[' + (Get-Date -Format o) + '] [ERROR] No se obtuvo respuesta del servidor.') " ^
-  "  } }"
+  try {
+    if (!fs.existsSync(csvPath)) {
+      throw new Error(`Archivo CSV no encontrado en ${csvPath}`);
+    }
 
-echo [INFO] Revision de logs (si existen)...
-if exist "%logPath%\combined.log" start notepad "%logPath%\combined.log"
-if exist "%logPath%\error.log" start notepad "%logPath%\error.log"
+    const csvData = await readFileAsync(csvPath, 'utf8');
+    const records = parse(csvData, {
+      columns: true,
+      skip_empty_lines: true,
+      delimiter: ',',
+      relax_quotes: true,
+      trim: true // Elimina espacios en blanco alrededor de los valores
+    });
 
-echo [FINALIZADO] Proceso completo.
-pause
+    triggerMap = new Map();
+    let invalidRows = 0;
+    for (const row of records) {
+      if (row.Clave && row.Contenido) {
+        triggerMap.set(normalize(row.Clave), row.Contenido);
+      } else {
+        invalidRows++;
+        logger.warn("selen", "Fila inválida en CSV:", row);
+      }
+    }
+
+    logger.info("selen", `Triggers cargados desde CSV: ${triggerMap.size}`);
+    if (invalidRows > 0) {
+      logger.warn("selen", `Se omitieron ${invalidRows} filas inválidas en el CSV`);
+    }
+    logger.debug("selen", `Triggers mapeados:`, Array.from(triggerMap.entries()));
+  } catch (error) {
+    logger.error("selen", "Error al cargar DB_TRIGGERS.csv:", error.message);
+    console.error("🛑 Error crítico cargando el CSV:", error.message);
+    triggerMap = new Map([['selen', 'Este es un contenido de prueba temporal para selen.']]);
+  }
+}
+
+async function optimizedFindTriggerContents(trigger) {
+  const cacheKey = `trigger-contents-${trigger}`;
+  const cached = await cacheService.get(cacheKey);
+  if (cached) {
+    logger.info("selen", "Contenidos obtenidos desde cache");
+    return cached;
+  }
+
+  const normalizedTrigger = normalize(trigger);
+  const contenido = triggerMap.get(normalizedTrigger) || "";
+  const contents = contenido.length > 0 ? [contenido] : [];
+
+  if (contents.length > 0) {
+    await cacheService.set(cacheKey, contents);
+    logger.info("selen", "Contenido encontrado en CSV");
+  } else {
+    logger.warn("selen", "Trigger no encontrado en CSV");
+  }
+  return contents;
+}
+
+async function ejecutarTrigger(triggerRaw) {
+  try {
+    logger.info("selen", "Normalizando trigger...");
+    const trigger = normalize(triggerRaw);
+
+    logger.info("selen", "Consultando cache...");
+    const cacheKey = `trigger-${trigger}`;
+    const cached = await cacheService.get(cacheKey);
+    if (cached) {
+      logger.info("selen", "Respondiendo desde cache");
+      return { ...cached, fromCache: true };
+    }
+
+    logger.info("selen", "Consultando triggers desde CSV...");
+    const contenidos = await optimizedFindTriggerContents(trigger);
+    const triggerData = contenidos.length > 0 ? { Contenido: contenidos[0] } : null;
+
+    if (!triggerData) {
+      logger.warn("selen", "Trigger no encontrado, usando respuesta por defecto.");
+      return {
+        respuesta: "No se encontró el trigger en la base de datos. Ingresa otro trigger manualmente.",
+        fromCache: false
+      };
+    }
+
+    logger.info("selen", "Generando prompt para Grok...");
+    const template = {
+      name: selenConfig.name,
+      personality: selenConfig.personality,
+      instructions: selenConfig.instructions,
+      symbiotic_body: selenConfig.symbiotic_body,
+      memory: { interaction_history: contenidos.join("\n---\n") },
+      response_format: { style: "Claro", use_emojis: true }
+    };
+
+    const promptFinal = `Selen, responde con tu simbiosis:\n${JSON.stringify(template)}\n${contenidos.join("\n---\n")}`;
+    logger.debug("selen", "Prompt enviado a Grok:", promptFinal);
+
+    // Usando xAI para completar el prompt
+    const response = await openai.chat.completions.create({
+      model: "grok-3",
+      messages: [
+        { role: "user", content: promptFinal }
+      ],
+      max_tokens: 1000, // Límite para respuestas largas
+      temperature: 0.7 // Controla la creatividad
+    });
+
+    const respuesta = response.choices[0]?.message?.content;
+    if (!respuesta) {
+      throw new Error("Respuesta vacía de la API de xAI");
+    }
+
+    logger.info("selen", "Respuesta de xAI recibida");
+    const result = { prompt: promptFinal, respuesta, fromCache: false };
+
+    // Guardar en cache
+    await cacheService.set(cacheKey, result);
+    return result;
+
+  } catch (error) {
+    logger.error("selen", "Error al ejecutar trigger:", error.message, error.stack);
+    return {
+      respuesta: "Ocurrió un error al procesar el trigger. Por favor, intenta de nuevo.",
+      error: error.message,
+      fromCache: false
+    };
+  }
+}
+
+// Validar variables de entorno al cargar el módulo
+try {
+  validateEnvVars();
+} catch (error) {
+  logger.error("selen", "Entorno:", error.message);
+  throw error;
+}
+
+export default async function handler(req, res) {
+  console.log("✅ Handler de Selen.js activado");
+  try {
+    logger.info("selen", "Solicitud recibida en /api/selen:", {
+      method: req.method,
+      url: req.url,
+      body: req.body,
+      query: req.query,
+      headers: req.headers
+    });
+
+    if (req.method !== "POST") {
+      logger.warn("selen", "Método no permitido:", req.method);
+      return res.status(405).json({
+        status: 'error',
+        error: "Método no permitido, usa POST",
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (
+      req.headers["x-vercel-protection-bypass"] &&
+      !checkAutomationBypass(req.headers["x-vercel-protection-bypass"])
+    ) {
+      logger.warn("selen", "Acceso no autorizado detectado");
+      return res.status(401).json({
+        status: 'error',
+        error: "Acceso no autorizado",
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    await initialize(); // Carga config y triggers solo una vez
+
+    const triggerRaw = req.body?.trigger || req.query?.trigger;
+    if (!triggerRaw || typeof triggerRaw !== 'string' || triggerRaw.length === 0 || triggerRaw.length > 1000) {
+      logger.warn("selen", "Trigger inválido:", triggerRaw);
+      return res.status(400).json({
+        status: 'error',
+        error: "Ingresa un trigger válido (máximo 1000 caracteres)",
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    logger.info("selen", "Ejecutando trigger:", triggerRaw);
+    const resultado = await ejecutarTrigger(triggerRaw);
+    logger.info("selen", "Trigger ejecutado correctamente");
+
+    return res.status(200).json({
+      status: 'success',
+      data: { ...resultado, savedToNotion: false },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    logger.error("selen", "Error en /api/selen:", error.message, error.stack);
+    return res.status(500).json({
+      status: 'error',
+      error: `Error interno: ${error.message}`,
+      timestamp: new Date().toISOString()
+    });
+  }
+}

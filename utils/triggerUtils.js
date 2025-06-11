@@ -22,7 +22,7 @@ function getTriggerByKey(triggerClave, callback) {
     })
     .on("end", () => {
       if (results.length > 0) {
-        callback(null, results); // Devuelve todos los match
+        callback(null, results); // Devuelve todos los resultados que coinciden
       } else {
         callback(new Error(`Trigger "${triggerClave}" no encontrado en CSV.`), []);
       }

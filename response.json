@@ -1,0 +1,29 @@
+# Definir el cuerpo de la solicitud
+$body = @{
+    trigger = "selen"
+} | ConvertTo-Json
+
+# Realizar la solicitud HTTP POST
+$response = Invoke-RestMethod -Uri "http://localhost:3000/api/selen" -Method Post -Body $body -ContentType "application/json"
+
+# Construir la estructura del JSON para la respuesta
+$jsonResponse = @{
+    id = "some-id"
+    object = "text_completion"
+    created = (Get-Date -UFormat %s) # Tiempo Unix actual
+    model = "grok-3-latest"
+    choices = @(
+        @{
+            text = $response.choices[0].text
+            index = 0
+            finish_reason = "stop"
+        }
+    )
+}
+
+# Guardar la respuesta en un archivo JSON
+$jsonResponse | ConvertTo-Json -Depth 4 | Out-File -FilePath "E:\Proyectos\Selen-Grok\response.json"
+
+# Leer y mostrar el contenido de la respuesta en consola
+$json = Get-Content -Path "E:\Proyectos\Selen-Grok\response.json" -Raw | ConvertFrom-Json
+Write-Output $json.choices[0].text
