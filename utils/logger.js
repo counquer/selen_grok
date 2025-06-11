@@ -1,38 +1,56 @@
-// utils/logger.js
-const winston = require('winston');
-const path = require('path');
-const fs = require('fs');
+const fs = require("fs");
+const path = require("path");
 
-const isDev = process.env.NODE_ENV !== 'production';
+const logDir = path.join(__dirname, "../logs");
+const logFile = path.join(logDir, "combined.log");
+const errorFile = path.join(logDir, "error.log");
 
-// Verificar que el directorio logs existe
-const logDir = path.join(process.cwd(), 'logs');
-if (!fs.existsSync(logDir)) {
-  fs.mkdirSync(logDir, { recursive: true });
+function ensureLogDirExists() {
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+
+  // Crear archivos vacíos si no existen
+  if (!fs.existsSync(logFile)) {
+    fs.writeFileSync(logFile, "", "utf8");
+  }
+  if (!fs.existsSync(errorFile)) {
+    fs.writeFileSync(errorFile, "", "utf8");
+  }
 }
 
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.json(),
-    winston.format.printf(({ timestamp, level, message, modulo }) => {
-      const formatted = `[timestamp: ${timestamp}] [${level.toUpperCase()}] [${modulo}] ${message}`;
-      return isDev ? `${level === 'info' ? '🔵' : level === 'warn' ? '🟠' : '🔴'} ${formatted}` : formatted;
-    })
-  ),
-  transports: [
-    new winston.transports.Console(),
-    new winston.transports.File({ filename: path.join(logDir, 'error.log'), level: 'error' }),
-    new winston.transports.File({ filename: path.join(logDir, 'combined.log') }),
-  ],
-});
+function timestamp() {
+  return new Date().toISOString();
+}
 
-// Log inicial para confirmar carga
-logger.info("logger", `Logger inicializado. Directorio de logs: ${logDir}`);
+function writeToFile(filePath, message) {
+  ensureLogDirExists();
+  fs.appendFile(filePath, message + "\n", (err) => {
+    if (err) console.error("⛔ Error escribiendo log:", err);
+  });
+}
+
+function log(level, label, ...messageParts) {
+  const labelTag = `[${label}]`;
+  const prefix = `[${timestamp()}] [${level.toUpperCase()}] ${labelTag}`;
+  const fullMessage = messageParts.map(m => typeof m === "object" ? JSON.stringify(m) : m).join(" ");
+  const finalLine = `${prefix} ${fullMessage}`;
+
+  if (level === "error") {
+    console.error(finalLine);
+    writeToFile(errorFile, finalLine);
+  } else {
+    console.log(finalLine);
+  }
+
+  writeToFile(logFile, finalLine);
+}
+
+// Inicializar al cargar el módulo
+ensureLogDirExists();
 
 module.exports = {
-  info: (modulo, mensaje) => logger.info(mensaje, { modulo }),
-  warn: (modulo, mensaje) => logger.warn(mensaje, { modulo }),
-  error: (modulo, mensaje, stack) => logger.error(mensaje, { modulo, stack }),
+  info: (label, ...msg) => log("info", label, ...msg),
+  warn: (label, ...msg) => log("warn", label, ...msg),
+  error: (label, ...msg) => log("error", label, ...msg)
 };
